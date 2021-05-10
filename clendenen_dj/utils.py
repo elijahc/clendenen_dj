@@ -50,6 +50,7 @@ def migrate_compass(base=None):
         os.path.join(mbp_base,'SWAN_20210210','Table6_Procedures.csv')),skip_duplicates=True)
 
     compass.CompassFile().insert1(('diagnosis',20210210,os.path.join('/Users/elijahc/data/compass/raw/SWAN_20210210/Table7_DX.csv')),skip_duplicates=True)
+    compass.CompassFile().insert1(('encounter',20210210,os.path.join('/Users/elijahc/data/compass/raw/SWAN_20210210/Table1_Encounter_Info.csv')),skip_duplicates=True)
 
     compass.ProcedureName().populate()
     compass.LabName().populate()

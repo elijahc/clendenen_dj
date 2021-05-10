@@ -7,6 +7,7 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
 import getpass
+from tableone import TableOne
 from .utils import create_config
 print(create_config())
 
@@ -14,6 +15,13 @@ from .compass import User, ProcedureName, CompassFile
 
 
 schema = dj.schema('clendenen_cohort')
+
+def to_batches(df,max_chunksize):
+    remainder = len(df) % max_chunksize
+    n_full_batches = int((len(df)-remainder)/max_chunksize)
+    slices = [slice(i,i+max_chunksize) for i in range(0,n_full_batches*max_chunksize,max_chunksize)] 
+    slices.append(slice(len(df)-remainder, len(df)))
+    return [df[s] for s in slices]
 
 @schema
 class Cohort(dj.Manual):
@@ -36,6 +44,14 @@ class Cohort(dj.Manual):
         ---
         """
 
+    class Encounter(dj.Part):
+        definition = """
+        -> master
+        encounter_id                     : bigint unsigned
+        ---
+        -> ProcedureName
+        """
+
     def new(self, procedures, name, user=None, description=None, person_id=None):
         user = user or getpass.getuser()
         cid = '{}/{}'.format(user,name)
@@ -52,10 +68,24 @@ class Cohort(dj.Manual):
                 
             self.insert1(r,skip_duplicates=True)
 
-            Cohort.Procedure.insert(
+            self.Procedure.insert(
                 [dict(cohort_id=cid,procedure=p) for p in procedures],
                 skip_duplicates=True,
             )
+
+            # Populate dependent Alignment table
+            Alignment().populate(display_progress=True)
+
+            adf = (Alignment() & (self.Procedure() & {'cohort_id':cid})).fetch(format="frame").reset_index()
+            adf['cohort_id'] = cid
+
+            if person_id is not None:
+                adf = adf[adf.person_id.isin(person_id)]
+
+            adf.set_index(['cohort_id','encounter_id','procedure'],inplace=True)
+            for b in to_batches(adf,200):
+                self.Encounter.insert(b,skip_duplicates=True,ignore_extra_fields=True)
+            
 
     def encounters(self):
         a = Alignment() & (Cohort.Procedure & self)
@@ -163,6 +193,41 @@ class CohortDelirium(dj.Computed):
         #     self.insert(chunk,skip_duplicates=True)
         #     del keys[:n_iter]
 
+from . import outcomes as otc
+class RegisteredCohort(object):
+    cohorts = Cohort()
+
+    def __init__(self, cohort_id):
+        key = (self.cohorts & {'cohort_id': cohort_id}).fetch1()
+        for k,v in key.items():
+            setattr(self,k,v)
+
+    def outcomes(self):
+        key = {'cohort_id':self.cohort_id}
+        otc_dict = {k:v() for k,v in otc.outcomes_export.items()}
+        for v in otc_dict.values():
+            v.populate(display_progress=True)
+
+        otc_dict = {k:(v & key).fetch(format='frame').reset_index() for k,v in otc.outcomes_export.items()}
+
+        return otc_dict
+
+    def demograhics(self):
+        cid = self.cohort_id
+        enc_df = (Cohort.Encounter() & {'cohort_id':cid}).fetch(format='frame').reset_index()
+        fp = (CompassFile & {'type':'encounter'}).fetch1('file')
+        tab = csv.read_csv(fp)
+        tab = tab.filter(
+                    pc.is_in(tab['encounter_id'],options=pc.SetLookupOptions(value_set=pa.array(enc_df.encounter_id.unique())))
+                )
+        enc_df = tab.to_pandas()
+        cols = ['gender', 'age', 'death_during_encounter']
+        categorical = ['gender', 'death_during_encounter']
+        return TableOne(enc_df, cols, categorical, nonnormal=['age'], missing=False)
+
+    # def __repr__(self):
+    #     return self.demographics().__repr__()
+
 class Index(object):
     def __init__(self):
         self.cohorts = pd.DataFrame(Cohort().fetch('cohort_id','username','cohort_description','created_at',as_dict=True))
@@ -176,24 +241,4 @@ class Index(object):
         if not cid in self.cohorts.cohort_id.values:
             raise ValueError('{} not in {}'.format(cid,self.list()))
 
-        c = (Cohort() & {'cohort_id':cid}).fetch1()
-        self.cohort_id = c['cohort_id']
-        self.person_id = c['person_id']
-        self.procedures = c['procedures']
-
-        a = Alignment() & (Cohort.Procedure() & {'cohort_id':cid})
-        a = pd.DataFrame(a.fetch(order_by='encounter_id',as_dict=True))
-        if self.person_id is not None:
-            self.alignment = a[a.person_id.isin(self.person_id)]
-        else:
-            self.alignment = a
-        
-        self.encounters = self.alignment.encounter_id.unique()
-
-        return self
-
-    def __repr__(self):
-        if hasattr(self, 'alignment'):
-            return self.alignment.__repr__()
-        else:
-            return self.__str__()
+        return RegisteredCohort(cid)

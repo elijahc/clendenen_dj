@@ -51,6 +51,7 @@ class CompassTable(dj.Lookup):
     """
     contents = [
         ('diagnosis','Provenance'),
+        ('encounter', 'encounter_id'),
         ('procedure','order_name'),
         ('flowsheet','display_name'),
         ('lab','lab_component_name'),

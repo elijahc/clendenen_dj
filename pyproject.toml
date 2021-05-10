@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "clendenen_dj"
-version = "0.2.0"
+version = "0.3.0"
 description = ""
 authors = ["Elijah Christensen <ejd.christensen@gmail.com>"]
 
@@ -10,6 +10,7 @@ pyarrow = "^4.0.0"
 pandas = "1.1.5"
 jedi = "<=0.15.1"
 datajoint = "^0.13.2"
+tableone = "^0.7.10"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
