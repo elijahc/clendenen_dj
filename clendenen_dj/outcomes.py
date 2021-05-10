@@ -11,13 +11,13 @@ from .utils import create_config
 print(create_config())
 
 from .compass import User, ProcedureName, CompassFile
-from .cohort import Cohort, Alignment
+from . import cohort
 
 schema = dj.schema('clendenen_cohort')
 
 class ProcedureOutcome(dj.Computed):
     definition = """
-    -> Cohort.Encounter
+    -> cohort.Cohort.Encounter
     days_from_dob                    : smallint unsigned
     ---
     day                              : smallint
@@ -50,7 +50,7 @@ class ProcedureOutcome(dj.Computed):
 
     def load_procedures(self, procedures):
         fp = (CompassFile & 'type = "procedure"').fetch1('file')
-        encounters  = np.unique(Cohort.Encounter().fetch('encounter_id'))
+        encounters  = np.unique(cohort.Cohort.Encounter().fetch('encounter_id'))
         tab = csv.read_csv(fp)
         tab = tab.filter(
             pc.is_in(tab['order_name'],options=pc.SetLookupOptions(value_set=pa.array(procedures)))
@@ -99,48 +99,8 @@ class CohortBleed(ProcedureOutcome):
     q = '0 <= day'
 
 outcomes_export = {
-    'vvECMO':CohortVVECMO,
+    'vv_ecmo':CohortVVECMO,
     'cardiac_arrest':CohortCardiacArrest,
     'mechanical_support':CohortMechanicalSupport,
     'bleed':CohortBleed,
 }
-
-# @schema
-# class CohortCardiacArrest(dj.Computed):
-#     definition = """
-#     -> Cohort.Encounter
-#     ---
-#     day                              : smallint
-#     days_from_dob                    : smallint unsigned
-#     event                            : smallint unsigned
-#     """
-
-#     def cached_procedures(self):
-#         if not hasattr(self,'procedures'):
-#             print('cacheing procedures...')
-#             cca = self.load_procedures(procedures=self.event_procedures).to_pandas()
-
-#             # Remove nan encounter ids
-#             cca = cca[~cca.encounter_id.isna()]
-#             cca.encounter_id = cca.encounter_id.astype(int)
-#             self.procedures = cca
-#             print(self.procedures)
-
-#         return self.procedures
-
-#     def make(self,key):
-#         cca = self.cached_procedures()
-#         if key['encounter_id'] in cca.encounter_id:
-#             print(cca[cca.encounter_id==key['encounter_id']])
-#             print(key)
-#             # self.insert1((key['encounter_id'],))
-
-#     def load_procedures(self, procedures=None):
-#         procedures = procedures or self.fetch('procedure')
-
-#         fp = (CompassFile & 'type = "procedure"').fetch1('file')
-#         tab = csv.read_csv(fp)
-#         tab = tab.filter(
-#             pc.is_in(tab['order_name'],options=pc.SetLookupOptions(value_set=pa.array(procedures)))
-#         )
-#         return tab

@@ -202,17 +202,27 @@ class RegisteredCohort(object):
         for k,v in key.items():
             setattr(self,k,v)
 
-    def outcomes(self):
-        key = {'cohort_id':self.cohort_id}
-        otc_dict = {k:v() for k,v in otc.outcomes_export.items()}
-        for v in otc_dict.values():
-            v.populate(display_progress=True)
+        self.alignment = (Alignment() & (Cohort.Procedure() & {'cohort_id':cohort_id})).fetch(format='frame')
+        self.encounters = (Cohort.Encounter() & {'cohort_id':cohort_id})
+        self._outcomes = otc
 
-        otc_dict = {k:(v & key).fetch(format='frame').reset_index() for k,v in otc.outcomes_export.items()}
+        for k,v in otc.outcomes_export.items():
+            name = 'get_{}'.format(k)
+            v = (v() & {'cohort_id':cohort_id})
+            setattr(self,name,v.fetch(format='frame'))
 
-        return otc_dict
+    def load_outcomes(self):
+        for k,v in otc.outcomes_export.items():
+            v = v()
+            v.populate(reserve_jobs=True,display_progress=True)
 
-    def demograhics(self):
+    def list_outcomes(self):
+        outcome_methods = [s for s in dir(self) if s.startswith('get_')]
+        print('Standardized Outcomes')
+        for m in outcome_methods:
+            print('- ',m, '()')
+
+    def demographics(self):
         cid = self.cohort_id
         enc_df = (Cohort.Encounter() & {'cohort_id':cid}).fetch(format='frame').reset_index()
         fp = (CompassFile & {'type':'encounter'}).fetch1('file')
@@ -226,7 +236,7 @@ class RegisteredCohort(object):
         return TableOne(enc_df, cols, categorical, nonnormal=['age'], missing=False)
 
     # def __repr__(self):
-    #     return self.demographics().__repr__()
+    #     return self.
 
 class Index(object):
     def __init__(self):
